@@ -1,155 +1,241 @@
--- Enable UUID extension
+-- EXTENSIONS
 create extension if not exists "uuid-ossp";
 
--- 1. Profiles (Extends Auth)
-create table profiles (
+-- ENUMS (Tipos personalizados para consistência)
+create type user_role as enum ('student', 'admin', 'support');
+create type enrollment_status as enum ('active', 'expired', 'revoked', 'pending');
+create type ticket_status as enum ('open', 'answered', 'closed');
+create type video_provider as enum ('youtube', 'vimeo', 'panda', 'custom');
+
+-- 1. PROFILES (Extensão da tabela auth.users)
+create table public.profiles (
   id uuid references auth.users on delete cascade primary key,
   email text not null,
-  role text default 'student' check (role in ('student', 'admin')),
   full_name text,
   avatar_url text,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  role user_role default 'student'::user_role,
+  created_at timestamp with time zone default now() not null,
+  updated_at timestamp with time zone default now() not null
 );
 
--- 2. Platform Settings (White-label)
-create table platform_settings (
-  id int primary key generated always as identity,
-  site_name text default 'EAD Platform',
-  primary_color text default '#2563eb',
-  secondary_color text default '#1e40af',
+-- 2. THEME SETTINGS (White-label)
+-- Tabela singleton (geralmente apenas 1 registro)
+create table public.theme_settings (
+  id int generated always as identity primary key,
+  site_name text default 'Minha Plataforma EAD',
   logo_url text,
   favicon_url text,
+  primary_color text default '#2563eb', -- Tailwind Blue-600
+  secondary_color text default '#1e40af', -- Tailwind Blue-800
   is_glass_mode boolean default false,
   updated_at timestamp with time zone default now()
 );
 
-insert into platform_settings (site_name) values ('Minha Plataforma EAD');
+-- Inserir configuração padrão inicial
+insert into public.theme_settings (site_name) values ('EAD Pro Platform');
 
--- 3. Courses
-create table courses (
+-- 3. COURSES
+create table public.courses (
   id uuid default uuid_generate_v4() primary key,
   title text not null,
+  slug text unique, -- Para URLs amigáveis
   description text,
   thumbnail_url text,
-  price decimal(10,2) default 0.00,
+  price decimal(10, 2) default 0.00,
   is_published boolean default false,
+  created_by uuid references public.profiles(id),
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
 );
 
--- 4. Modules
-create table modules (
+-- 4. MODULES
+create table public.modules (
   id uuid default uuid_generate_v4() primary key,
-  course_id uuid references courses(id) on delete cascade,
+  course_id uuid references public.courses(id) on delete cascade not null,
   title text not null,
-  position int default 0,
-  created_at timestamp with time zone default now()
-);
-
--- 5. Lessons
-create table lessons (
-  id uuid default uuid_generate_v4() primary key,
-  module_id uuid references modules(id) on delete cascade,
-  title text not null,
-  video_url text, -- Embed URL
-  provider text default 'youtube', -- youtube, vimeo, panda, etc.
-  content text, -- Rich text description
-  duration_seconds int default 0,
-  position int default 0,
-  created_at timestamp with time zone default now()
-);
-
--- 6. Enrollments (Access Control)
-create table enrollments (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references profiles(id) on delete cascade,
-  course_id uuid references courses(id) on delete cascade,
-  expires_at timestamp with time zone,
+  description text,
+  position int default 0, -- Para ordenação Drag-and-Drop
   created_at timestamp with time zone default now(),
-  unique(user_id, course_id)
+  updated_at timestamp with time zone default now()
 );
 
--- 7. Progress
-create table progress (
-  user_id uuid references profiles(id) on delete cascade,
-  lesson_id uuid references lessons(id) on delete cascade,
-  is_completed boolean default false,
-  completed_at timestamp with time zone default now(),
-  primary key (user_id, lesson_id)
-);
-
--- 8. Private Notes
-create table notes (
+-- 5. LESSONS
+create table public.lessons (
   id uuid default uuid_generate_v4() primary key,
-  user_id uuid references profiles(id) on delete cascade,
-  lesson_id uuid references lessons(id) on delete cascade,
+  module_id uuid references public.modules(id) on delete cascade not null,
+  title text not null,
+  content text, -- Rich Text / HTML description
+  video_url text,
+  provider video_provider default 'youtube'::video_provider,
+  duration_seconds int default 0,
+  position int default 0, -- Para ordenação Drag-and-Drop
+  is_free_preview boolean default false, -- Aula liberada para não-compradores
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now()
+);
+
+-- 6. ENROLLMENTS (Matrículas e Controle de Acesso)
+create table public.enrollments (
+  id uuid default uuid_generate_v4() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  course_id uuid references public.courses(id) on delete cascade not null,
+  status enrollment_status default 'active'::enrollment_status,
+  access_end_at timestamp with time zone, -- Validade do acesso (NULL = Vitalício)
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now(),
+  unique (user_id, course_id) -- Impede duplicidade
+);
+
+-- 7. PROGRESS (Rastreamento de Aulas)
+create table public.progress (
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  lesson_id uuid references public.lessons(id) on delete cascade not null,
+  is_completed boolean default false,
+  completed_at timestamp with time zone,
+  last_watched_at timestamp with time zone default now(),
+  primary key (user_id, lesson_id) -- Chave composta
+);
+
+-- 8. NOTES (Anotações Privadas do Aluno)
+create table public.notes (
+  id uuid default uuid_generate_v4() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  lesson_id uuid references public.lessons(id) on delete cascade not null,
   content text not null,
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
 );
 
--- 9. Tickets (Q&A)
-create table tickets (
+-- 9. TICKETS (Sistema de Dúvidas/Suporte)
+create table public.tickets (
   id uuid default uuid_generate_v4() primary key,
-  user_id uuid references profiles(id) on delete cascade,
-  lesson_id uuid references lessons(id) on delete cascade,
+  user_id uuid references public.profiles(id) on delete cascade not null, -- Quem abriu
+  course_id uuid references public.courses(id) on delete cascade not null,
+  lesson_id uuid references public.lessons(id) on delete set null, -- Opcional, dúvida geral ou de aula
   subject text not null,
-  message text not null,
-  status text default 'open' check (status in ('open', 'answered', 'closed')),
-  admin_response text,
+  status ticket_status default 'open'::ticket_status,
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
 );
 
--- RLS Policies (Simplified for Initial Setup)
-alter table profiles enable row level security;
-alter table platform_settings enable row level security;
-alter table courses enable row level security;
-alter table modules enable row level security;
-alter table lessons enable row level security;
-alter table enrollments enable row level security;
-alter table progress enable row level security;
-alter table notes enable row level security;
-alter table tickets enable row level security;
-
--- Public Read for Settings
-create policy "Public read settings" on platform_settings for select using (true);
--- Only admin can update settings
-create policy "Admin update settings" on platform_settings for update using (
-  exists (select 1 from profiles where id = auth.uid() and role = 'admin')
+-- 10. TICKET MESSAGES (Histórico da Conversa)
+create table public.ticket_messages (
+  id uuid default uuid_generate_v4() primary key,
+  ticket_id uuid references public.tickets(id) on delete cascade not null,
+  user_id uuid references public.profiles(id) on delete set null, -- Quem enviou (aluno ou admin)
+  message text not null,
+  is_admin_reply boolean default false, -- Flag para facilitar estilização no front
+  created_at timestamp with time zone default now()
 );
 
--- Profiles: Users see themselves, Admins see all
-create policy "Users read own profile" on profiles for select using (auth.uid() = id);
-create policy "Admins read all profiles" on profiles for select using (
-  exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-);
-create policy "Admins update profiles" on profiles for update using (
-  exists (select 1 from profiles where id = auth.uid() and role = 'admin')
+-- 11. CERTIFICATES
+create table public.certificates (
+  id uuid default uuid_generate_v4() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  course_id uuid references public.courses(id) on delete cascade not null,
+  validation_code text unique not null, -- Código para validação pública
+  issued_at timestamp with time zone default now(),
+  unique (user_id, course_id) -- Apenas 1 certificado por curso por aluno
 );
 
--- Courses/Content: Admins all access, Students read if published (or specific logic)
-create policy "Admin full course access" on courses for all using (
-  exists (select 1 from profiles where id = auth.uid() and role = 'admin')
+-- 12. AUDIT LOG (Auditoria de Ações Administrativas)
+create table public.audit_logs (
+  id uuid default uuid_generate_v4() primary key,
+  actor_id uuid references public.profiles(id) on delete set null, -- Admin que realizou a ação
+  action text not null, -- Ex: 'CREATE_COURSE', 'REVOKE_ACCESS', 'UPDATE_SETTINGS'
+  entity_table text not null, -- Ex: 'courses', 'enrollments'
+  entity_id uuid, -- ID do registro afetado
+  details jsonb, -- Dados anteriores e novos (snapshot)
+  created_at timestamp with time zone default now()
 );
-create policy "Student read published courses" on courses for select using (is_published = true);
 
--- Enrollments: Admins all, Users read own
-create policy "Admin full enrollment access" on enrollments for all using (
-  exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-);
-create policy "User read own enrollments" on enrollments for select using (auth.uid() = user_id);
+-- INDEXES (Performance)
+create index idx_modules_course_pos on public.modules (course_id, position);
+create index idx_lessons_module_pos on public.lessons (module_id, position);
+create index idx_enrollments_user_status on public.enrollments (user_id, status);
+create index idx_enrollments_course on public.enrollments (course_id);
+create index idx_tickets_course_status on public.tickets (course_id, status);
+create index idx_progress_user on public.progress (user_id);
 
--- Trigger to create profile on signup
+-- FUNCTION: Update 'updated_at' column automatically
+create or replace function update_updated_at_column()
+returns trigger as $$
+begin
+    new.updated_at = now();
+    return new;
+end;
+$$ language plpgsql;
+
+-- TRIGGERS (Auto-update timestamps)
+create trigger update_profiles_modtime before update on public.profiles for each row execute procedure update_updated_at_column();
+create trigger update_theme_modtime before update on public.theme_settings for each row execute procedure update_updated_at_column();
+create trigger update_courses_modtime before update on public.courses for each row execute procedure update_updated_at_column();
+create trigger update_modules_modtime before update on public.modules for each row execute procedure update_updated_at_column();
+create trigger update_lessons_modtime before update on public.lessons for each row execute procedure update_updated_at_column();
+create trigger update_enrollments_modtime before update on public.enrollments for each row execute procedure update_updated_at_column();
+create trigger update_notes_modtime before update on public.notes for each row execute procedure update_updated_at_column();
+create trigger update_tickets_modtime before update on public.tickets for each row execute procedure update_updated_at_column();
+
+-- FUNCTION: Handle New User (Supabase Auth Hook)
 create or replace function public.handle_new_user() 
 returns trigger as $$
 begin
   insert into public.profiles (id, email, full_name, role)
-  values (new.id, new.email, new.raw_user_meta_data->>'full_name', 'student');
+  values (
+    new.id, 
+    new.email, 
+    coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)), 
+    'student'
+  );
   return new;
 end;
 $$ language plpgsql security definer;
 
+-- Trigger for Auth
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- ROW LEVEL SECURITY (RLS) - Basic Policies
+-- (Na produção, refinar para garantir que alunos só vejam cursos comprados ou públicos)
+
+-- Enable RLS on all tables
+alter table public.profiles enable row level security;
+alter table public.theme_settings enable row level security;
+alter table public.courses enable row level security;
+alter table public.modules enable row level security;
+alter table public.lessons enable row level security;
+alter table public.enrollments enable row level security;
+alter table public.progress enable row level security;
+alter table public.notes enable row level security;
+alter table public.tickets enable row level security;
+alter table public.ticket_messages enable row level security;
+alter table public.certificates enable row level security;
+alter table public.audit_logs enable row level security;
+
+-- Admin Helper Policy Function
+-- (Assume que o perfil do usuário logado tem role='admin')
+-- Nota: Para setup inicial, você pode precisar desabilitar RLS ou criar um usuário manualmente.
+
+-- POLICIES (Exemplos Simplificados)
+-- Profiles: Usuário vê o seu, Admin vê todos
+create policy "Users view own profile" on profiles for select using (auth.uid() = id);
+create policy "Admins view all profiles" on profiles for select using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+create policy "Admins update all profiles" on profiles for update using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+
+-- Theme Settings: Público vê, Admin edita
+create policy "Public view settings" on theme_settings for select using (true);
+create policy "Admins edit settings" on theme_settings for all using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+
+-- Courses/Modules/Lessons: Leitura baseada em publicação, Escrita apenas Admin
+create policy "Public/Students view published courses" on courses for select using (is_published = true or exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+create policy "Admins manage courses" on courses for all using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+
+-- Enrollments: Aluno vê as suas, Admin vê todas
+create policy "Student view own enrollments" on enrollments for select using (auth.uid() = user_id);
+create policy "Admins manage enrollments" on enrollments for all using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+
+-- Tickets/Messages: Aluno vê os seus, Admin vê todos
+create policy "Student manage own tickets" on tickets for all using (auth.uid() = user_id);
+create policy "Admins manage all tickets" on tickets for all using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));

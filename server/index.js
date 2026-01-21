@@ -1,3 +1,4 @@
+
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
@@ -98,7 +99,7 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-// --- ROTA PÚBLICA: Validação de Certificado ---
+// --- ROTA PÚBLICA: Validação de Certificado (Visual Aprimorado) ---
 app.get('/verify/:code', async (req, res) => {
   const { code } = req.params;
 
@@ -115,26 +116,74 @@ app.get('/verify/:code', async (req, res) => {
 
     if (error || !cert) {
       return res.status(404).send(`
-        <div style="font-family: sans-serif; text-align: center; padding: 50px;">
-          <h1 style="color: red;">Certificado Não Encontrado</h1>
-          <p>O código <strong>${code}</strong> não corresponde a um certificado válido em nossa base.</p>
-        </div>
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Certificado Não Encontrado</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+        </head>
+        <body class="bg-slate-50 flex items-center justify-center min-h-screen p-4">
+            <div class="max-w-md w-full bg-white rounded-xl shadow-xl p-8 text-center border border-red-100">
+                <div class="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-6">
+                    <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </div>
+                <h1 class="text-2xl font-bold text-slate-900 mb-2">Certificado Inválido</h1>
+                <p class="text-slate-600 mb-6">O código <strong>${code}</strong> não foi encontrado em nossa base de dados.</p>
+                <a href="/" class="text-blue-600 hover:text-blue-800 font-medium">Voltar para Home</a>
+            </div>
+        </body>
+        </html>
       `);
     }
 
     res.send(`
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ccc; border-radius: 10px; text-align: center; background-color: #f9f9f9;">
-        <h1 style="color: #2563eb;">Certificado Válido ✓</h1>
-        <p>Este documento certifica que</p>
-        <h2 style="color: #333;">${cert.profile.full_name}</h2>
-        <p>concluiu com êxito o curso</p>
-        <h3 style="color: #333;">${cert.course.title}</h3>
-        <hr style="margin: 20px 0; opacity: 0.3;" />
-        <p style="font-size: 0.9em; color: #666;">
-          Emitido em: ${new Date(cert.issued_at).toLocaleDateString('pt-BR')}<br>
-          Código de Validação: <strong>${code}</strong>
-        </p>
-      </div>
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Certificado Válido - ${cert.profile.full_name}</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+          <style>body { font-family: 'Inter', sans-serif; }</style>
+      </head>
+      <body class="bg-slate-50 flex items-center justify-center min-h-screen p-4 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-100 via-slate-50 to-slate-100">
+          <div class="max-w-2xl w-full bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+              <div class="bg-blue-600 p-6 text-center">
+                  <h1 class="text-white text-xl font-bold tracking-wider uppercase">Certificado Autêntico</h1>
+              </div>
+              <div class="p-10 text-center">
+                  <div class="inline-block p-4 rounded-full bg-green-50 mb-6">
+                     <svg class="w-12 h-12 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                  </div>
+                  
+                  <p class="text-slate-500 text-sm uppercase tracking-wide font-semibold mb-2">Certificamos que</p>
+                  <h2 class="text-3xl md:text-4xl font-extrabold text-slate-900 mb-6">${cert.profile.full_name}</h2>
+                  
+                  <div class="h-px w-24 bg-slate-200 mx-auto mb-6"></div>
+                  
+                  <p class="text-slate-600 mb-2">Concluiu com êxito o curso profissionalizante:</p>
+                  <h3 class="text-xl md:text-2xl font-bold text-blue-700 mb-8">${cert.course.title}</h3>
+                  
+                  <div class="bg-slate-50 rounded-lg p-6 border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
+                      <div class="text-left">
+                          <p class="text-xs text-slate-400 uppercase">Data de Emissão</p>
+                          <p class="font-semibold text-slate-800">${new Date(cert.issued_at).toLocaleDateString('pt-BR')}</p>
+                      </div>
+                      <div class="text-right">
+                          <p class="text-xs text-slate-400 uppercase">Código de Validação</p>
+                          <p class="font-mono font-bold text-slate-800 tracking-wider">${code}</p>
+                      </div>
+                  </div>
+              </div>
+              <div class="bg-slate-50 p-4 text-center text-xs text-slate-400 border-t">
+                  Plataforma EAD Pro - Verificação Pública Oficial
+              </div>
+          </div>
+      </body>
+      </html>
     `);
 
   } catch (err) {
@@ -206,9 +255,6 @@ app.put('/api/admin/modules/reorder', requireAuth, requireAdmin, async (req, res
 app.post('/api/admin/enrollments', requireAuth, requireAdmin, async (req, res) => {
   const { user_id, email, course_id, days_valid } = req.body;
   
-  // Se vier user_id, usa. Se vier email, busca ID ou cria "shadow user".
-  // Para simplificar MVP, assumiremos que o admin passa user_id (selecionado de lista) ou email para novo user.
-  
   if ((!user_id && !email) || !course_id) return res.status(400).json({ error: 'User ID/Email and Course ID required' });
 
   try {
@@ -224,10 +270,9 @@ app.post('/api/admin/enrollments', requireAuth, requireAdmin, async (req, res) =
         targetUserId = existingUsers[0].id;
       } else {
         // 2. Criar usuário no Auth (sem senha, email confirmado)
-        // Isso requer a SERVICE_ROLE_KEY
         const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
           email: email,
-          email_confirm: true // Confirmar automaticamente para permitir reset de senha
+          email_confirm: true 
         });
 
         if (createError) throw createError;
@@ -269,20 +314,28 @@ app.post('/api/admin/enrollments', requireAuth, requireAdmin, async (req, res) =
       const targetEmail = email || linkData.user.email;
       const siteName = process.env.SITE_NAME || 'Plataforma EAD';
 
-      // Conteúdo do E-mail em Português
+      // Conteúdo do E-mail em Português (HTML Bonito)
       const emailHtml = `
-        <div style="font-family: sans-serif; color: #333;">
-          <h2>Olá!</h2>
-          <p>Seu acesso ao curso na <strong>${siteName}</strong> foi liberado com sucesso.</p>
-          ${isNewUser 
-            ? `<p>Sua conta foi criada. Para definir sua senha segura e acessar a plataforma, clique no botão abaixo:</p>` 
-            : `<p>Seu acesso foi atualizado. Se precisar redefinir sua senha, use o link abaixo:</p>`
-          }
-          <p style="margin: 20px 0;">
-            <a href="${resetLink}" style="background-color: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Definir Minha Senha</a>
-          </p>
-          <p style="font-size: 0.9em; color: #666;">Se o botão não funcionar, copie e cole o link: <br>${resetLink}</p>
-          <p>Bons estudos!</p>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #2563eb;">${siteName}</h1>
+          </div>
+          <div style="background-color: #f8fafc; padding: 30px; border-radius: 8px; border: 1px solid #e2e8f0;">
+            <h2 style="color: #1e293b; margin-top: 0;">Acesso Liberado! 🚀</h2>
+            <p style="line-height: 1.6;">Olá,</p>
+            <p style="line-height: 1.6;">Você acaba de receber acesso a um novo curso em nossa plataforma.</p>
+            ${isNewUser 
+              ? `<p style="line-height: 1.6;">Sua conta foi criada automaticamente. Para definir sua senha e começar a estudar, clique no botão abaixo:</p>` 
+              : `<p style="line-height: 1.6;">Seu acesso foi atualizado. Se precisar redefinir sua senha, use o link abaixo:</p>`
+            }
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${resetLink}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Acessar Plataforma</a>
+            </div>
+            <p style="font-size: 0.9em; color: #64748b; margin-top: 20px;">
+              Ou copie este link: <br>
+              <a href="${resetLink}" style="color: #2563eb;">${resetLink}</a>
+            </p>
+          </div>
         </div>
       `;
 
@@ -324,7 +377,7 @@ app.post('/api/admin/tickets/:id/reply', requireAuth, requireAdmin, async (req, 
   }
 });
 
-// --- ROTAS API: ALUNO (Mantidas as mesmas, sem alterações profundas) ---
+// --- ROTAS API: ALUNO (Mantidas as mesmas) ---
 app.get('/api/student/courses', requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Button, Card, Loader, Input } from '../components/ui';
-import { PlayCircle, CheckCircle, Lock, Download, FileCheck, User, LogOut, X } from 'lucide-react';
+import { PlayCircle, CheckCircle, Lock, Download, FileCheck, User, LogOut, X, Shield, QrCode } from 'lucide-react';
 import ReactPlayer from 'react-player';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
@@ -92,17 +92,35 @@ const generateCertificate = async (userName: string, courseName: string, validat
 
 const ProfileModal = ({ onClose }: { onClose: () => void }) => {
   const { profile } = useAuth();
+  const [tab, setTab] = useState<'general' | 'security'>('general');
+  
+  // General State
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleUpdate = async (e: React.FormEvent) => {
+  // MFA State
+  const [mfaFactors, setMfaFactors] = useState<any[]>([]);
+  const [enrollData, setEnrollData] = useState<any>(null); // { id, type, totp: { qr_code, secret, uri } }
+  const [verifyCode, setVerifyCode] = useState('');
+  const [qrImage, setQrImage] = useState('');
+
+  useEffect(() => {
+    fetchFactors();
+  }, []);
+
+  const fetchFactors = async () => {
+    const { data, error } = await supabase.auth.mfa.listFactors();
+    if (!error) setMfaFactors(data.all);
+  };
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
       alert("Senha atualizada com sucesso!");
-      onClose();
+      setPassword('');
     } catch (err: any) {
       alert("Erro ao atualizar: " + err.message);
     } finally {
@@ -110,37 +128,158 @@ const ProfileModal = ({ onClose }: { onClose: () => void }) => {
     }
   };
 
+  const startMfaEnrollment = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
+      if (error) throw error;
+      
+      setEnrollData(data);
+      // Generate QR Code Image from URI
+      const url = await QRCode.toDataURL(data.totp.uri);
+      setQrImage(url);
+    } catch (err: any) {
+      alert("Erro ao iniciar 2FA: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyAndActivateMfa = async () => {
+    if(!enrollData) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.auth.mfa.challengeAndVerify({
+        factorId: enrollData.id,
+        code: verifyCode
+      });
+      if (error) throw error;
+      
+      alert("Autenticação de 2 Fatores ativada com sucesso!");
+      setEnrollData(null);
+      setVerifyCode('');
+      fetchFactors();
+    } catch (err: any) {
+      alert("Código inválido ou erro: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const unenrollMfa = async (factorId: string) => {
+    if(!confirm("Tem certeza que deseja remover o 2FA? Sua conta ficará menos segura.")) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.mfa.unenroll({ factorId });
+      if (error) throw error;
+      fetchFactors();
+    } catch (err: any) {
+      alert("Erro: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <Card className="w-full max-w-md p-6 bg-background relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-muted-foreground hover:text-foreground">
-          <X size={20} />
-        </button>
-        <h3 className="text-xl font-bold mb-4">Minha Conta</h3>
-        <div className="mb-4">
-          <label className="text-xs text-muted-foreground">Nome</label>
-          <div className="font-medium">{profile?.full_name}</div>
-          <label className="text-xs text-muted-foreground mt-2 block">E-mail</label>
-          <div className="font-medium">{profile?.email}</div>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <Card className="w-full max-w-lg p-0 bg-background relative overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="p-4 border-b flex justify-between items-center">
+           <h3 className="text-xl font-bold">Minha Conta</h3>
+           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+             <X size={20} />
+           </button>
         </div>
-        <hr className="my-4"/>
-        <form onSubmit={handleUpdate}>
-          <h4 className="font-semibold mb-2">Redefinir Senha</h4>
-          <p className="text-xs text-muted-foreground mb-3">Digite sua nova senha abaixo para atualizá-la.</p>
-          <div className="mb-4">
-             <Input 
-                type="password" 
-                placeholder="Nova Senha" 
-                minLength={6}
-                value={password} 
-                onChange={e => setPassword(e.target.value)} 
-                required
-             />
-          </div>
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Atualizando..." : "Salvar Nova Senha"}
-          </Button>
-        </form>
+        
+        <div className="flex border-b">
+           <button 
+             className={`flex-1 p-3 text-sm font-medium ${tab === 'general' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground'}`}
+             onClick={() => setTab('general')}
+           >
+             Geral
+           </button>
+           <button 
+             className={`flex-1 p-3 text-sm font-medium ${tab === 'security' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground'}`}
+             onClick={() => setTab('security')}
+           >
+             Segurança & 2FA
+           </button>
+        </div>
+
+        <div className="p-6 overflow-y-auto">
+          {tab === 'general' && (
+            <>
+              <div className="mb-6 bg-secondary/20 p-4 rounded-lg">
+                <label className="text-xs text-muted-foreground uppercase font-bold">Nome</label>
+                <div className="font-medium text-lg">{profile?.full_name}</div>
+                <label className="text-xs text-muted-foreground mt-3 block uppercase font-bold">E-mail</label>
+                <div className="font-medium">{profile?.email}</div>
+              </div>
+              
+              <form onSubmit={handleUpdatePassword}>
+                <h4 className="font-semibold mb-2">Redefinir Senha</h4>
+                <div className="mb-4">
+                  <Input 
+                      type="password" 
+                      placeholder="Nova Senha" 
+                      minLength={6}
+                      value={password} 
+                      onChange={e => setPassword(e.target.value)} 
+                      required
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? "Atualizando..." : "Salvar Nova Senha"}
+                </Button>
+              </form>
+            </>
+          )}
+
+          {tab === 'security' && (
+            <div className="space-y-6">
+               <div>
+                 <h4 className="font-semibold flex items-center gap-2"><Shield size={18} className="text-primary"/> Autenticação de 2 Fatores (2FA)</h4>
+                 <p className="text-sm text-muted-foreground mt-1">
+                   Adicione uma camada extra de segurança à sua conta usando um aplicativo autenticador (Google Authenticator, Authy, etc).
+                 </p>
+               </div>
+
+               {mfaFactors.some(f => f.status === 'verified') ? (
+                 <div className="bg-green-100 text-green-800 p-4 rounded border border-green-200 flex items-center justify-between">
+                    <span className="flex items-center gap-2"><CheckCircle size={16}/> 2FA Ativo</span>
+                    <Button variant="danger" size="sm" onClick={() => unenrollMfa(mfaFactors[0].id)} disabled={loading}>Desativar</Button>
+                 </div>
+               ) : (
+                 !enrollData ? (
+                   <Button onClick={startMfaEnrollment} disabled={loading} className="w-full">
+                     <QrCode size={16} className="mr-2"/> Configurar 2FA Agora
+                   </Button>
+                 ) : (
+                   <div className="border rounded-lg p-4 bg-secondary/10">
+                      <div className="text-center mb-4">
+                        <p className="text-sm font-bold mb-2">1. Escaneie o QR Code no seu App:</p>
+                        {qrImage && <img src={qrImage} alt="QR Code" className="mx-auto border p-1 bg-white rounded" />}
+                        <p className="text-xs text-muted-foreground mt-2 break-all font-mono select-all">{enrollData.totp.secret}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-sm font-bold">2. Digite o código gerado:</p>
+                        <Input 
+                          placeholder="000000" 
+                          value={verifyCode} 
+                          onChange={e => setVerifyCode(e.target.value)} 
+                          maxLength={6}
+                          className="text-center tracking-widest text-lg"
+                        />
+                        <Button onClick={verifyAndActivateMfa} disabled={loading || verifyCode.length < 6} className="w-full">
+                          Verificar e Ativar
+                        </Button>
+                        <Button variant="ghost" onClick={() => setEnrollData(null)} size="sm" className="w-full">Cancelar</Button>
+                      </div>
+                   </div>
+                 )
+               )}
+            </div>
+          )}
+        </div>
       </Card>
     </div>
   );

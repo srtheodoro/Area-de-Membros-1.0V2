@@ -48,11 +48,18 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
 Input.displayName = "Input";
 
 // Card
-export const Card = ({ className, children, glass }: { className?: string, children: React.ReactNode, glass?: boolean }) => (
-  <div className={cn("rounded-lg border bg-card text-card-foreground shadow-sm", glass && "glass", className)}>
-    {children}
-  </div>
+export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { glass?: boolean }>(
+  ({ className, children, glass, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cn("rounded-lg border bg-card text-card-foreground shadow-sm", glass && "glass", className)}
+      {...props}
+    >
+      {children}
+    </div>
+  )
 );
+Card.displayName = "Card";
 
 // Loading Spinner
 export const Loader = () => (

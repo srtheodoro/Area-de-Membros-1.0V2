@@ -1,0 +1,5 @@
+{
+  "name": "EAD Platform Pro",
+  "description": "A production-ready LMS platform with Supabase, Express, and React. Features student area, admin dashboard, drag-and-drop course management, and white-label options.",
+  "requestFramePermissions": []
+}

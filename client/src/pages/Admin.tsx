@@ -2,13 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Button, Input, Card, Loader } from '../components/ui';
-import { Plus, Trash2, Edit, Save, Settings, Users, BookOpen, GripVertical } from 'lucide-react';
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { Plus, Trash2, Edit, Save, Settings, Users, BookOpen, GripVertical, X, Check, Search } from 'lucide-react';
+import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
 // --- Types ---
 type Course = { id: string; title: string; is_published: boolean; price: number };
+type Enrollment = { 
+  id: string; 
+  status: string; 
+  access_end_at: string | null; 
+  user_id: string;
+  course_id: string;
+  profile: { email: string; full_name: string };
+  course: { title: string };
+};
 
 // --- Sortable Item Component ---
 function SortableItem({ id, children }: { id: string; children: React.ReactNode }) {
@@ -29,14 +37,14 @@ const AdminSettings = () => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    supabase.from('platform_settings').select('*').single().then(({ data }) => {
+    supabase.from('theme_settings').select('*').single().then(({ data }) => {
       if(data) setConfig(data);
     });
   }, []);
 
   const handleSave = async () => {
     setLoading(true);
-    await supabase.from('platform_settings').update(config).eq('id', 1); // Assuming ID 1 exists
+    await supabase.from('theme_settings').update(config).eq('id', 1); // Assuming ID 1 exists
     // Force reload to apply theme or use context to update runtime
     window.location.reload(); 
     setLoading(false);
@@ -116,6 +124,165 @@ const AdminCourses = () => {
   );
 };
 
+const AdminUsers = () => {
+  const { session } = useAuth();
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [showModal, setShowModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  
+  // Form State
+  const [email, setEmail] = useState('');
+  const [selectedCourse, setSelectedCourse] = useState('');
+  const [days, setDays] = useState('365');
+
+  const fetchData = async () => {
+    // Fetch Enrollments
+    const { data: enrollmentData } = await supabase
+      .from('enrollments')
+      .select('*, profile:profiles(email, full_name), course:courses(title)')
+      .order('created_at', { ascending: false });
+    
+    if (enrollmentData) setEnrollments(enrollmentData as any);
+
+    // Fetch Courses for Select
+    const { data: courseData } = await supabase
+      .from('courses')
+      .select('id, title')
+      .eq('is_published', true);
+    
+    if (courseData) setCourses(courseData as any);
+  };
+
+  useEffect(() => { fetchData(); }, []);
+
+  const handleGrantAccess = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/admin/enrollments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          email,
+          course_id: selectedCourse,
+          days_valid: days
+        })
+      });
+
+      if (!response.ok) throw new Error('Falha ao conceder acesso');
+      
+      alert('Acesso concedido e e-mail enviado com sucesso!');
+      setShowModal(false);
+      setEmail('');
+      fetchData();
+    } catch (err) {
+      alert('Erro ao processar solicitação.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRevoke = async (id: string) => {
+    if (!confirm('Tem certeza que deseja revogar este acesso?')) return;
+    await supabase.from('enrollments').update({ status: 'revoked' }).eq('id', id);
+    fetchData();
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Gestão de Acessos</h2>
+        <Button onClick={() => setShowModal(true)}><Plus size={16} className="mr-2"/> Novo Acesso Manual</Button>
+      </div>
+
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-secondary/30 text-muted-foreground uppercase">
+              <tr>
+                <th className="px-6 py-3">Aluno</th>
+                <th className="px-6 py-3">Curso</th>
+                <th className="px-6 py-3">Status</th>
+                <th className="px-6 py-3">Validade</th>
+                <th className="px-6 py-3">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {enrollments.map((item) => (
+                <tr key={item.id} className="border-b hover:bg-secondary/10">
+                  <td className="px-6 py-4">
+                    <div className="font-medium">{item.profile?.full_name || 'N/A'}</div>
+                    <div className="text-xs text-muted-foreground">{item.profile?.email}</div>
+                  </td>
+                  <td className="px-6 py-4">{item.course?.title}</td>
+                  <td className="px-6 py-4">
+                    <span className={`px-2 py-1 rounded-full text-xs ${item.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      {item.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    {item.access_end_at ? new Date(item.access_end_at).toLocaleDateString() : 'Vitalício'}
+                  </td>
+                  <td className="px-6 py-4">
+                    {item.status === 'active' && (
+                      <Button variant="danger" size="sm" onClick={() => handleRevoke(item.id)}>Revogar</Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* Modal Novo Acesso */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md p-6 bg-background relative">
+            <button onClick={() => setShowModal(false)} className="absolute top-4 right-4 text-muted-foreground hover:text-foreground">
+              <X size={20} />
+            </button>
+            <h3 className="text-xl font-bold mb-4">Conceder Acesso</h3>
+            <form onSubmit={handleGrantAccess} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">E-mail do Aluno</label>
+                <Input type="email" required placeholder="aluno@exemplo.com" value={email} onChange={e => setEmail(e.target.value)} />
+                <p className="text-xs text-muted-foreground mt-1">Se o aluno não existir, uma conta será criada e um link de senha enviado.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Curso</label>
+                <select 
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  required 
+                  value={selectedCourse} 
+                  onChange={e => setSelectedCourse(e.target.value)}
+                >
+                  <option value="">Selecione um curso...</option>
+                  {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Validade (dias)</label>
+                <Input type="number" required value={days} onChange={e => setDays(e.target.value)} />
+                <p className="text-xs text-muted-foreground mt-1">Deixe 0 para acesso vitalício (ajustar backend se necessário).</p>
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? 'Processando...' : 'Conceder Acesso & Enviar E-mail'}
+              </Button>
+            </form>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // --- Main Admin Layout ---
 export default function AdminDashboard() {
   const { isAdmin, loading } = useAuth();
@@ -146,16 +313,7 @@ export default function AdminDashboard() {
       <main className="flex-1 p-8 overflow-y-auto">
         {activeTab === 'courses' && <AdminCourses />}
         {activeTab === 'settings' && <AdminSettings />}
-        {activeTab === 'users' && (
-          <div>
-            <h2 className="text-2xl font-bold mb-4">Gestão de Alunos</h2>
-            <p className="text-muted-foreground">Funcionalidade de adicionar alunos manualmente, definir validade e enviar e-mail de boas-vindas.</p>
-            {/* Implementation omitted for brevity, follows standard CRUD pattern with 'enrollments' table */}
-            <div className="mt-8 border p-8 rounded-lg border-dashed text-center text-muted-foreground">
-               Área de listagem de alunos e controle de matriculas (Tabela Enrollments)
-            </div>
-          </div>
-        )}
+        {activeTab === 'users' && <AdminUsers />}
       </main>
     </div>
   );

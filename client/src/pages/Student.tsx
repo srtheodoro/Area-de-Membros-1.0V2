@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Button, Card, Loader } from '../components/ui';
-import { PlayCircle, CheckCircle, Lock, Download, FileCheck } from 'lucide-react';
+import { Button, Card, Loader, Input } from '../components/ui';
+import { PlayCircle, CheckCircle, Lock, Download, FileCheck, User, LogOut, X } from 'lucide-react';
 import ReactPlayer from 'react-player';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
@@ -90,13 +90,70 @@ const generateCertificate = async (userName: string, courseName: string, validat
   doc.save(`certificado-${validationCode}.pdf`);
 };
 
+const ProfileModal = ({ onClose }: { onClose: () => void }) => {
+  const { profile } = useAuth();
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      alert("Senha atualizada com sucesso!");
+      onClose();
+    } catch (err: any) {
+      alert("Erro ao atualizar: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <Card className="w-full max-w-md p-6 bg-background relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-muted-foreground hover:text-foreground">
+          <X size={20} />
+        </button>
+        <h3 className="text-xl font-bold mb-4">Minha Conta</h3>
+        <div className="mb-4">
+          <label className="text-xs text-muted-foreground">Nome</label>
+          <div className="font-medium">{profile?.full_name}</div>
+          <label className="text-xs text-muted-foreground mt-2 block">E-mail</label>
+          <div className="font-medium">{profile?.email}</div>
+        </div>
+        <hr className="my-4"/>
+        <form onSubmit={handleUpdate}>
+          <h4 className="font-semibold mb-2">Redefinir Senha</h4>
+          <p className="text-xs text-muted-foreground mb-3">Digite sua nova senha abaixo para atualizá-la.</p>
+          <div className="mb-4">
+             <Input 
+                type="password" 
+                placeholder="Nova Senha" 
+                minLength={6}
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+                required
+             />
+          </div>
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? "Atualizando..." : "Salvar Nova Senha"}
+          </Button>
+        </form>
+      </Card>
+    </div>
+  );
+};
+
 export default function StudentArea() {
-  const { profile, loading, session } = useAuth();
+  const { profile, loading, session, signOut } = useAuth();
   const [courses, setCourses] = useState<any[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [modules, setModules] = useState<any[]>([]);
   const [activeLesson, setActiveLesson] = useState<any>(null);
   const [issuingCert, setIssuingCert] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
 
   useEffect(() => {
     // Fetch enrolled courses
@@ -106,7 +163,8 @@ export default function StudentArea() {
       const { data } = await supabase
         .from('enrollments')
         .select('course:courses(*)')
-        .eq('user_id', profile.id);
+        .eq('user_id', profile.id)
+        .eq('status', 'active');
       
       if(data) setCourses(data.map((d: any) => d.course));
     };
@@ -243,7 +301,18 @@ export default function StudentArea() {
   // --- Dashboard / My Courses View ---
   return (
     <div className="p-8 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold mb-8">Meus Cursos</h1>
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">Meus Cursos</h1>
+        <div className="flex gap-2">
+           <Button variant="outline" onClick={() => setShowProfile(true)}>
+             <User size={18} className="mr-2"/> Minha Conta
+           </Button>
+           <Button variant="ghost" onClick={signOut} className="text-destructive hover:bg-destructive/10">
+             <LogOut size={18} className="mr-2"/> Sair
+           </Button>
+        </div>
+      </div>
+
       {courses.length === 0 ? (
         <div className="text-center py-20 bg-secondary/20 rounded-lg">
           <p className="text-muted-foreground text-lg mb-4">Você ainda não possui cursos matriculados.</p>
@@ -270,6 +339,8 @@ export default function StudentArea() {
           ))}
         </div>
       )}
+      
+      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
     </div>
   );
 }
